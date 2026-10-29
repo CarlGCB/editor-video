@@ -5,7 +5,7 @@ const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;'
 const say = m => { $('cstat').textContent = m; };
 window.addEventListener('error', e => say('❌ Error: ' + emsg(e)));
 window.addEventListener('unhandledrejection', e => say('❌ Error: ' + emsg(e.reason)));
-$('log').textContent = 'app.js v11 cargado\n';
+$('log').textContent = 'app.js v12 cargado\n';
 
 const toBlobURL = async (url, type) => {
   const r = await fetch(url); if (!r.ok) throw new Error('no se pudo descargar ' + url);
@@ -147,9 +147,9 @@ function render() {
         <button class="ghost" data-a="ps">📍 actual</button>
         Fin <input type="number" step="0.1" min="0" class="e" value="${c.end}">
         <button class="ghost" data-a="pe">📍 actual</button></div>
-      <label class="meta"><input type="checkbox" class="sel" ${c.sel ? 'checked' : ''}> Aplicar recorte inicial</label>
+      <label class="meta"><input type="checkbox" class="sel" ${c.sel ? 'checked' : ''}> Marcado para «Borrar Principio»</label>
       <div class="meta" data-i>Duración: ${fmt(Math.max(0, c.end - c.start))}</div>
-      <div class="row"><button class="ghost" data-a="up">↑</button><button class="ghost" data-a="dn">↓</button><button class="ghost" data-a="rm">Quitar</button></div></div>`;
+      <div class="row"><button class="ghost" data-a="trim">Borrar principio</button><button class="ghost" data-a="up">↑</button><button class="ghost" data-a="dn">↓</button><button class="ghost" data-a="rm">Quitar</button></div></div>`;
     const v = el.querySelector('video'), s = el.querySelector('.s'), e = el.querySelector('.e');
     const upd = () => { c.start = +s.value; c.end = +e.value; el.querySelector('[data-i]').textContent = `Duración: ${fmt(Math.max(0, c.end - c.start))}`; };
     v.onloadedmetadata = () => { c.dur = v.duration; if (!c.end) { c.end = +v.duration.toFixed(2); e.value = c.end; upd(); } };
@@ -158,6 +158,7 @@ function render() {
     s.oninput = e.oninput = upd;
     el.onclick = ev => {
       const a = ev.target.dataset.a; if (!a) return;
+      if (a === 'trim') { trimStart([c]); return; }
       if ((a === 'ps' || a === 'pe') && !v.isConnected) return;
       if (a === 'ps') { s.value = v.currentTime.toFixed(2); upd(); }
       if (a === 'pe') { e.value = v.currentTime.toFixed(2); upd(); }
@@ -171,17 +172,17 @@ function render() {
   $('export').disabled = !clips.length;
 }
 
-$('tapply').onclick = () => {
+function trimStart(list) {
   const t = (+$('tmin').value || 0) * 60 + (+$('tsec').value || 0), skip = []; let ok = 0;
-  const marked = clips.filter(c => c.sel);
-  if (!marked.length) { $('tmsg').textContent = 'No hay vídeos marcados.'; return; }
-  for (const c of marked) {
+  if (!list.length) { $('tmsg').textContent = 'No hay vídeos marcados.'; return; }
+  for (const c of list) {
     if (c.sig === 'Analizando…' || (c.end && t >= c.end)) { skip.push(c.file.name); continue; }
     c.start = t; ok++;
   }
   render();
   $('tmsg').textContent = `Inicio fijado en ${fmt(t).slice(0, 8)} en ${ok} vídeo(s)` + (skip.length ? `. Omitidos (más cortos o aún analizando): ${skip.join(', ')}` : '') + '. Con copia sin recodificar, el corte real puede caer unos segundos antes.';
-};
+}
+$('tapply').onclick = () => trimStart($('tscope').value === 'all' ? clips : clips.filter(c => c.sel));
 $('tall').onclick = () => { clips.forEach(c => c.sel = true); render(); };
 $('tnone').onclick = () => { clips.forEach(c => c.sel = false); render(); };
 
