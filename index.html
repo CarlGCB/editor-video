@@ -14,6 +14,7 @@ section{margin-top:22px}section h2{font-size:1.1rem;margin:0 0 10px}
 .hd{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px}
 ul{list-style:none;padding:0;margin:0}li{display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-top:1px solid #8b91b822;font-size:.85rem}
 li>span:first-child{word-break:break-all}li a{color:var(--acc);text-decoration:none}
+select{padding:8px;border-radius:6px;border:1px solid var(--mut);background:transparent;color:inherit}select option{background:var(--card)}
 </style>
 <script src="coi-serviceworker.js"></script>
 </head>
@@ -40,10 +41,11 @@ li>span:first-child{word-break:break-all}li a{color:var(--acc);text-decoration:n
       <div class="row">Quitar los primeros
         <input type="number" id="tmin" min="0" value="2"> min
         <input type="number" id="tsec" min="0" max="59" value="0"> s
-        <button id="tapply">Aplicar a los marcados</button>
+        <select id="tscope"><option value="marked">En los marcados</option><option value="all">En todos los vídeos</option></select>
+        <button id="tapply">Borrar Principio</button>
         <button class="ghost" id="tall">Marcar todos</button>
         <button class="ghost" id="tnone">Desmarcar todos</button></div>
-      <div class="meta" id="tmsg">Marca o desmarca cada vídeo con su casilla «Aplicar recorte inicial».</div>
+      <div class="meta" id="tmsg">Elige dónde aplicarlo: en los vídeos marcados, en todos, o solo en uno con el botón «Borrar principio» de su tarjeta.</div>
     </div>
     <div id="clips"></div>
     <div class="bar">
