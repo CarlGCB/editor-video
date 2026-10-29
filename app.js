@@ -4,7 +4,7 @@ const emsg = e => String(e?.message ?? e);
 const say = m => { const el = document.getElementById('status'); if (el) el.textContent = m; };
 window.addEventListener('error', e => say('❌ Error: ' + emsg(e)));
 window.addEventListener('unhandledrejection', e => say('❌ Error: ' + emsg(e.reason)));
-document.getElementById('log').textContent = 'app.js v7 cargado\n';
+document.getElementById('log').textContent = 'app.js v8 cargado\n';
 const toBlobURL = async (url, type) => {
   const r = await fetch(url); if (!r.ok) throw new Error('no se pudo descargar ' + url);
   return URL.createObjectURL(new Blob([await r.arrayBuffer()], { type }));
@@ -157,7 +157,7 @@ loadFFmpeg().catch(e => $('status').textContent = '❌ No se pudo cargar FFmpeg:
       <select id="cmode"><option value="copy">Rápido (copiar)</option><option value="enc">Recodificar H.264 (lento)</option></select>
       <button id="cgo" disabled>Convertir</button></div>
     <div class="row"><progress id="cprog" value="0" max="1" hidden></progress><span id="cstat" class="meta"></span></div>
-    <a id="cdl" class="dl" hidden>⬇️ Descargar MP4</a></div>`;
+    <a id="cdl" class="dl" hidden>⬇️ Guardar también el MP4</a></div>`;
   document.querySelector('main').insertBefore(sec, document.querySelector('details'));
   const g = id => document.getElementById(id);
   let file = null;
@@ -165,11 +165,6 @@ loadFFmpeg().catch(e => $('status').textContent = '❌ No se pudo cargar FFmpeg:
   g('cgo').onclick = async () => {
     if (!file) return;
     const outName = file.name.replace(/\.[^.]+$/, '') + '.mp4';
-    let writable = null;
-    if (window.showSaveFilePicker) {
-      try { writable = await (await showSaveFilePicker({ suggestedName: outName, types: [{ description: 'MP4', accept: { 'video/mp4': ['.mp4'] } }] })).createWritable(); }
-      catch (e) { if (e.name === 'AbortError') return; }
-    }
     const go = g('cgo'), pr = g('cprog'), stat = g('cstat');
     go.disabled = true; g('cdl').hidden = true; pr.hidden = false; pr.value = 0;
     const onP = ({ progress }) => { pr.value = Math.min(Math.max(progress, 0), 1); stat.textContent = `Convirtiendo… ${(pr.value * 100).toFixed(0)} %`; };
@@ -185,9 +180,12 @@ loadFFmpeg().catch(e => $('status').textContent = '❌ No se pudo cargar FFmpeg:
       if (code !== 0) throw new Error('FFmpeg no pudo convertirlo. Si usaste «Rápido», prueba «Recodificar» (ver registro).');
       const data = await ffmpeg.readFile('out.mp4'); await ffmpeg.deleteFile('out.mp4');
       const secs = ((performance.now() - t0) / 1000).toFixed(1);
-      if (writable) { await writable.write(data); await writable.close(); writable = null; stat.textContent = `✅ Guardado en ${secs} s (${(data.length / 1e6).toFixed(0)} MB)`; }
-      else { const a = g('cdl'); a.href = URL.createObjectURL(new Blob([data.buffer], { type: 'video/mp4' })); a.download = outName; a.hidden = false; stat.textContent = `✅ Listo en ${secs} s (${(data.length / 1e6).toFixed(0)} MB)`; }
-    } catch (err) { try { await writable?.abort(); } catch {} stat.textContent = '❌ ' + emsg(err); }
+      const f = new File([data], outName, { type: 'video/mp4' });
+      const a = g('cdl'); a.href = URL.createObjectURL(f); a.download = outName; a.hidden = false;
+      stat.textContent = `✅ Convertido en ${secs} s (${(data.length / 1e6).toFixed(0)} MB) y añadido al editor`;
+      await addFiles([f]);
+      g('clips').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } catch (err) { stat.textContent = '❌ ' + emsg(err); }
     ffmpeg?.off('progress', onP); pr.hidden = true; go.disabled = false;
   };
 })();
