@@ -1,9 +1,10 @@
 const CORE = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/umd';
 const $ = id => document.getElementById(id);
+const emsg = e => String(e?.message ?? e);
 const say = m => { const el = document.getElementById('status'); if (el) el.textContent = m; };
-window.addEventListener('error', e => say('❌ Error: ' + e.message));
-window.addEventListener('unhandledrejection', e => say('❌ Error: ' + (e.reason?.message || e.reason)));
-document.getElementById('log').textContent = 'app.js v5 cargado\n';
+window.addEventListener('error', e => say('❌ Error: ' + emsg(e)));
+window.addEventListener('unhandledrejection', e => say('❌ Error: ' + emsg(e.reason)));
+document.getElementById('log').textContent = 'app.js v7 cargado\n';
 const toBlobURL = async (url, type) => {
   const r = await fetch(url); if (!r.ok) throw new Error('no se pudo descargar ' + url);
   return URL.createObjectURL(new Blob([await r.arrayBuffer()], { type }));
@@ -20,7 +21,6 @@ function loadFFmpeg() {
     if (!ffmpeg) throw new Error('faltan los archivos de vendor/');
     $('status').textContent = 'Cargando FFmpeg (~30 MB, solo la primera vez)…';
     await ffmpeg.load({
-      classWorkerURL: new URL('vendor/814.ffmpeg.js', location.href).href,
       coreURL: await toBlobURL(`${CORE}/ffmpeg-core.js`, 'text/javascript'),
       wasmURL: await toBlobURL(`${CORE}/ffmpeg-core.wasm`, 'application/wasm'),
     });
@@ -52,9 +52,9 @@ async function probe(c, i) {
 async function addFiles(list) {
   for (const file of list) clips.push({ file, url: URL.createObjectURL(file), start: 0, end: 0, dur: 0, sig: 'Analizando…', vsig: '' });
   render();
-  try { await loadFFmpeg(); } catch (e) { $('status').textContent = '❌ No se pudo cargar FFmpeg: ' + e.message; return; }
+  try { await loadFFmpeg(); } catch (e) { $('status').textContent = '❌ No se pudo cargar FFmpeg: ' + emsg(e); return; }
   for (const c of clips.filter(c => c.sig === 'Analizando…')) {
-    try { await probe(c, clips.indexOf(c)); } catch (e) { c.sig = 'No se pudo analizar: ' + e.message; }
+    try { await probe(c, clips.indexOf(c)); } catch (e) { c.sig = 'No se pudo analizar: ' + emsg(e); }
     render();
   }
 }
@@ -133,7 +133,7 @@ async function exportVideo() {
       a.download = 'final.ts'; a.hidden = false;
       $('status').textContent = `✅ Listo en ${((performance.now() - t0) / 1000).toFixed(1)} s`;
     }
-  } catch (err) { try { await writable?.abort(); } catch {} $('status').textContent = '❌ Error: ' + err.message + ' (ver registro)'; }
+  } catch (err) { try { await writable?.abort(); } catch {} $('status').textContent = '❌ Error: ' + emsg(err) + ' (ver registro)'; }
   prog.hidden = true; btn.disabled = false;
 }
 
@@ -142,4 +142,52 @@ $('drop').ondragover = e => { e.preventDefault(); $('drop').classList.add('over'
 $('drop').ondragleave = () => $('drop').classList.remove('over');
 $('drop').ondrop = e => { e.preventDefault(); $('drop').classList.remove('over'); addFiles([...e.dataTransfer.files].filter(f => f.type.startsWith('video/'))); };
 $('export').onclick = exportVideo;
-loadFFmpeg().catch(e => $('status').textContent = '❌ No se pudo cargar FFmpeg: ' + e.message);
+loadFFmpeg().catch(e => $('status').textContent = '❌ No se pudo cargar FFmpeg: ' + emsg(e));
+
+
+// ---- Conversor a MP4 (se inserta solo, sin tocar index.html) ----
+(() => {
+  const st = document.createElement('style');
+  st.textContent = '#cmode{padding:8px;border-radius:6px;border:1px solid var(--mut);background:transparent;color:inherit}#cmode option{background:var(--card)}';
+  document.head.append(st);
+  const sec = document.createElement('section'); sec.className = 'clip';
+  sec.innerHTML = `<div style="grid-column:1/-1"><h2 style="margin:0 0 8px;font-size:1.1rem">🔄 Convertir vídeo a MP4</h2>
+    <div class="meta">«Rápido» solo cambia el contenedor (segundos, sin perder calidad), pero el navegador puede seguir sin reproducirlo. «Recodificar» lo pasa a H.264 (se reproduce en todas partes) pero es lento: prueba antes con un trozo corto.</div>
+    <div class="row"><input type="file" id="cfile" accept="video/*,.avi,.mkv,.wmv,.flv">
+      <select id="cmode"><option value="copy">Rápido (copiar)</option><option value="enc">Recodificar H.264 (lento)</option></select>
+      <button id="cgo" disabled>Convertir</button></div>
+    <div class="row"><progress id="cprog" value="0" max="1" hidden></progress><span id="cstat" class="meta"></span></div>
+    <a id="cdl" class="dl" hidden>⬇️ Descargar MP4</a></div>`;
+  document.querySelector('main').insertBefore(sec, document.querySelector('details'));
+  const g = id => document.getElementById(id);
+  let file = null;
+  g('cfile').onchange = e => { file = e.target.files[0] || null; g('cgo').disabled = !file; g('cdl').hidden = true; g('cstat').textContent = ''; };
+  g('cgo').onclick = async () => {
+    if (!file) return;
+    const outName = file.name.replace(/\.[^.]+$/, '') + '.mp4';
+    let writable = null;
+    if (window.showSaveFilePicker) {
+      try { writable = await (await showSaveFilePicker({ suggestedName: outName, types: [{ description: 'MP4', accept: { 'video/mp4': ['.mp4'] } }] })).createWritable(); }
+      catch (e) { if (e.name === 'AbortError') return; }
+    }
+    const go = g('cgo'), pr = g('cprog'), stat = g('cstat');
+    go.disabled = true; g('cdl').hidden = true; pr.hidden = false; pr.value = 0;
+    const onP = ({ progress }) => { pr.value = Math.min(Math.max(progress, 0), 1); stat.textContent = `Convirtiendo… ${(pr.value * 100).toFixed(0)} %`; };
+    const t0 = performance.now();
+    try {
+      await loadFFmpeg();
+      ffmpeg.on('progress', onP);
+      stat.textContent = 'Convirtiendo…';
+      const args = g('cmode').value === 'copy'
+        ? ['-c', 'copy']
+        : ['-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '128k'];
+      const code = await withMounted(file, 'c', p => ffmpeg.exec(['-i', p, '-map', '0:v:0', '-map', '0:a:0?', ...args, '-movflags', '+faststart', 'out.mp4']));
+      if (code !== 0) throw new Error('FFmpeg no pudo convertirlo. Si usaste «Rápido», prueba «Recodificar» (ver registro).');
+      const data = await ffmpeg.readFile('out.mp4'); await ffmpeg.deleteFile('out.mp4');
+      const secs = ((performance.now() - t0) / 1000).toFixed(1);
+      if (writable) { await writable.write(data); await writable.close(); writable = null; stat.textContent = `✅ Guardado en ${secs} s (${(data.length / 1e6).toFixed(0)} MB)`; }
+      else { const a = g('cdl'); a.href = URL.createObjectURL(new Blob([data.buffer], { type: 'video/mp4' })); a.download = outName; a.hidden = false; stat.textContent = `✅ Listo en ${secs} s (${(data.length / 1e6).toFixed(0)} MB)`; }
+    } catch (err) { try { await writable?.abort(); } catch {} stat.textContent = '❌ ' + emsg(err); }
+    ffmpeg?.off('progress', onP); pr.hidden = true; go.disabled = false;
+  };
+})();
