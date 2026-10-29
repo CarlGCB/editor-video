@@ -5,7 +5,7 @@ const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;'
 const say = m => { $('cstat').textContent = m; };
 window.addEventListener('error', e => say('❌ Error: ' + emsg(e)));
 window.addEventListener('unhandledrejection', e => say('❌ Error: ' + emsg(e.reason)));
-$('log').textContent = 'app.js v13 cargado\n';
+$('log').textContent = 'app.js v14 cargado\n';
 
 const toBlobURL = async (url, type) => {
   const r = await fetch(url); if (!r.ok) throw new Error('no se pudo descargar ' + url);
@@ -259,7 +259,7 @@ async function exportVideo() {
         await withMounted(c.file, i, p => ffmpeg.exec([
           '-ss', String(c.start), '-i', p, '-t', String(c.end - c.start),
           '-map', '0:v:0?', '-map', '0:a:0?', '-c', 'copy',
-          '-avoid_negative_ts', 'make_zero', '-muxdelay', '0', '-muxpreload', '0',
+          '-muxdelay', '0', '-muxpreload', '0',
           '-output_ts_offset', String(offset), '-f', 'mpegts', out]));
         logBuf = []; await ffmpeg.exec(['-hide_banner', '-i', out]);
         const m = logBuf.join('\n').match(/Duration: (\d+):(\d+):([\d.]+)/);
