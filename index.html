@@ -5,27 +5,47 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Cortar y unir vídeos sin recodificar</title>
 <link rel="stylesheet" href="style.css">
+<style>
+[hidden]{display:none!important}
+section{margin-top:22px}section h2{font-size:1.1rem;margin:0 0 10px}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:14px 0}
+@media(max-width:640px){.cols{grid-template-columns:1fr}}
+.box{background:var(--card);border-radius:14px;padding:14px}.box h3{margin:0;font-size:1rem}
+.hd{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+ul{list-style:none;padding:0;margin:0}li{display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-top:1px solid #8b91b822;font-size:.85rem}
+li>span:first-child{word-break:break-all}li a{color:var(--acc);text-decoration:none}
+</style>
 <script src="coi-serviceworker.js"></script>
 </head>
 <body>
 <main>
   <h1>✂️ Cortar y unir vídeos <small>sin recodificar · 100 % en tu navegador</small></h1>
-  <label class="drop" id="drop">
-    <input type="file" id="files" accept="video/*" multiple hidden>
-    <span>Arrastra vídeos aquí o haz clic para seleccionarlos</span>
-  </label>
-  <div class="note">⚠️ Con <code>-c copy</code> los cortes caen en el <b>keyframe anterior</b> al punto de inicio (puede haber desfases de 0–10 s). Los clips deben ser H.264/H.265 con el mismo códec, resolución y fps. Se exporta como <b>.ts</b> (úsalo en Chrome/Edge para guardar directo a disco).</div>
-  <div id="clips"></div>
-  <div class="bar">
-    <button id="export" disabled>Exportar vídeo final</button>
-    <progress id="prog" value="0" max="1" hidden></progress>
-    <span id="status"></span>
-  </div>
-  <a id="dl" class="dl" hidden>⬇️ Descargar</a>
+  <section>
+    <h2>1. Añadir vídeos</h2>
+    <label class="drop" id="drop">
+      <input type="file" id="files" accept="video/*,.avi,.mkv,.mov,.wmv,.flv,.mpg,.mpeg,.m4v,.webm,.3gp" multiple hidden>
+      <span>Suelta aquí todos tus vídeos (o haz clic).<br>Los MP4 van directos a la lista; los demás se convierten a MP4 de uno en uno.</span>
+    </label>
+    <div class="cols">
+      <div class="box"><div class="hd"><h3>Cola de conversión</h3></div><ul id="queue"></ul></div>
+      <div class="box"><div class="hd"><h3>Videos MP4</h3><button id="toEditor" disabled>Pasar Videos al Editor</button></div><ul id="mp4list"></ul></div>
+    </div>
+    <div class="meta" id="cstat"></div>
+  </section>
+  <section id="editor" hidden>
+    <h2>2. Editor</h2>
+    <div class="note">⚠️ Con <code>-c copy</code> los cortes caen en el <b>keyframe anterior</b> al inicio (puede haber desfases de 0–10 s). Los clips deben tener el mismo códec, resolución y fps. Se exporta como <b>.ts</b> (usa Chrome/Edge para guardar directo a disco).</div>
+    <div id="clips"></div>
+    <div class="bar">
+      <button id="export" disabled>Exportar vídeo final</button>
+      <progress id="prog" value="0" max="1" hidden></progress>
+      <span id="status"></span>
+    </div>
+    <a id="dl" class="dl" hidden>⬇️ Descargar</a>
+  </section>
   <details><summary>Registro de FFmpeg</summary><pre id="log"></pre></details>
 </main>
 <script src="vendor/ffmpeg.js"></script>
-<script src="vendor/util.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
