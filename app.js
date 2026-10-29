@@ -5,7 +5,7 @@ const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;'
 const say = m => { $('cstat').textContent = m; };
 window.addEventListener('error', e => say('❌ Error: ' + emsg(e)));
 window.addEventListener('unhandledrejection', e => say('❌ Error: ' + emsg(e.reason)));
-$('log').textContent = 'app.js v14 cargado\n';
+$('log').textContent = 'app.js v15 cargado\n';
 
 const toBlobURL = async (url, type) => {
   const r = await fetch(url); if (!r.ok) throw new Error('no se pudo descargar ' + url);
@@ -235,7 +235,7 @@ $('tall').onclick = () => { clips.forEach(c => c.mark = true); renderStrip(); };
 $('tnone').onclick = () => { clips.forEach(c => c.mark = false); renderStrip(); };
 
 async function exportVideo() {
-  const btn = $('export'), prog = $('prog'), st = $('status');
+  const btn = $('export'), prog = $('prog'), st = $('status'), asMp4 = $('fmt').value === 'mp4', ext = asMp4 ? 'mp4' : 'ts';
   if (!clips.length || !clips.every(c => c.end > c.start)) { st.textContent = 'Revisa: el fin debe ser mayor que el inicio.'; return; }
   if (clips.some(c => c.sig === 'Analizando…')) { st.textContent = 'Espera a que termine el análisis de los vídeos.'; return; }
   const bad = clips.find(c => !/^(h264|hevc|mpeg4|mpeg2video)/.test(c.sig));
@@ -243,38 +243,54 @@ async function exportVideo() {
   // Debe llamarse dentro del clic (antes de cualquier await largo)
   let writable = null;
   if (window.showSaveFilePicker) {
-    try { writable = await (await showSaveFilePicker({ suggestedName: 'final.ts', types: [{ description: 'MPEG-TS', accept: { 'video/mp2t': ['.ts'] } }] })).createWritable(); }
+    try { writable = await (await showSaveFilePicker({ suggestedName: 'final.' + ext, types: [asMp4 ? { description: 'MP4', accept: { 'video/mp4': ['.mp4'] } } : { description: 'MPEG-TS', accept: { 'video/mp2t': ['.ts'] } }] })).createWritable(); }
     catch (e) { if (e.name === 'AbortError') return; }
   }
   btn.disabled = true; prog.hidden = false; $('dl').hidden = true;
-  const n = clips.length; let step = 0, offset = 0; const blobParts = [];
-  const onP = ({ progress }) => { prog.value = (step + Math.min(Math.max(progress, 0), 1)) / n; };
+  const n = clips.length, steps = asMp4 ? n + 1 : n; let step = 0, offset = 0, size = 0; const blobParts = [], partFiles = [];
+  const onP = ({ progress }) => { prog.value = (step + Math.min(Math.max(progress, 0), 1)) / steps; };
   ffmpeg.on('progress', onP);
   const t0 = performance.now();
   await run(async () => {
     try {
       for (let i = 0; i < n; i++, step++) {
-        const c = clips[i], out = `p${i}.ts`;
+        const c = clips[i], out = `p${i}.${ext}`;
         st.textContent = `Recortando ${i + 1}/${n}…`;
-        await withMounted(c.file, i, p => ffmpeg.exec([
-          '-ss', String(c.start), '-i', p, '-t', String(c.end - c.start),
+        await withMounted(c.file, i, p => ffmpeg.exec(['-ss', String(c.start), '-i', p, '-t', String(c.end - c.start),
           '-map', '0:v:0?', '-map', '0:a:0?', '-c', 'copy',
-          '-muxdelay', '0', '-muxpreload', '0',
-          '-output_ts_offset', String(offset), '-f', 'mpegts', out]));
-        logBuf = []; await ffmpeg.exec(['-hide_banner', '-i', out]);
-        const m = logBuf.join('\n').match(/Duration: (\d+):(\d+):([\d.]+)/);
-        offset += m ? +m[1] * 3600 + +m[2] * 60 + +m[3] : c.end - c.start;
-        const data = await ffmpeg.readFile(out);
-        if (writable) await writable.write(data); else blobParts.push(data);
+          ...(asMp4 ? ['-avoid_negative_ts', 'make_zero', out]
+                    : ['-muxdelay', '0', '-muxpreload', '0', '-output_ts_offset', String(offset), '-f', 'mpegts', out])]));
+        if (asMp4) {
+          // La parte se saca de la memoria de FFmpeg; luego se monta como archivo para unirlas sin copiarlas.
+          partFiles.push(new File([await ffmpeg.readFile(out)], out, { type: 'video/mp4' }));
+        } else {
+          logBuf = []; await ffmpeg.exec(['-hide_banner', '-i', out]);
+          const m = logBuf.join('\n').match(/Duration: (\d+):(\d+):([\d.]+)/);
+          offset += m ? +m[1] * 3600 + +m[2] * 60 + +m[3] : c.end - c.start;
+          const data = await ffmpeg.readFile(out); size += data.length;
+          if (writable) await writable.write(data); else blobParts.push(data);
+        }
         await ffmpeg.deleteFile(out);           // libera la RAM de wasm tras cada clip
       }
-      const secs = ((performance.now() - t0) / 1000).toFixed(1);
-      if (writable) { await writable.close(); st.textContent = `✅ Guardado en disco en ${secs} s`; }
-      else {
-        const a = $('dl'); a.href = URL.createObjectURL(new Blob(blobParts, { type: 'video/mp2t' }));
-        a.download = 'final.ts'; a.hidden = false; st.textContent = `✅ Listo en ${secs} s`;
+      if (asMp4) {
+        st.textContent = 'Uniendo en MP4…';
+        await ffmpeg.createDir('/parts'); await ffmpeg.mount('WORKERFS', { files: partFiles }, '/parts');
+        try {
+          await ffmpeg.writeFile('list.txt', partFiles.map(f => `file '/parts/${f.name}'`).join('\n') + '\n');
+          const code = await ffmpeg.exec(['-f', 'concat', '-safe', '0', '-i', 'list.txt', '-c', 'copy', 'final.mp4']);
+          if (code !== 0) throw new Error('FFmpeg no pudo unir los vídeos en MP4 (¿códecs distintos?). Prueba el formato TS.');
+        } finally { await ffmpeg.unmount('/parts'); await ffmpeg.deleteDir('/parts'); }
+        const data = await ffmpeg.readFile('final.mp4'); size = data.length;
+        await ffmpeg.deleteFile('final.mp4'); await ffmpeg.deleteFile('list.txt'); step++;
+        if (writable) await writable.write(data); else blobParts.push(data);
       }
-    } catch (err) { try { await writable?.abort(); } catch {} st.textContent = '❌ Error: ' + emsg(err) + ' (ver registro)'; }
+      const secs = ((performance.now() - t0) / 1000).toFixed(1), mb = (size / 1048576).toFixed(0);
+      if (writable) { await writable.close(); st.textContent = `✅ Guardado en disco en ${secs} s (${mb} MB)`; }
+      else {
+        const a = $('dl'); a.href = URL.createObjectURL(new Blob(blobParts, { type: asMp4 ? 'video/mp4' : 'video/mp2t' }));
+        a.download = 'final.' + ext; a.hidden = false; st.textContent = `✅ Listo en ${secs} s (${mb} MB)`;
+      }
+    } catch (err) { try { await writable?.abort(); } catch {} st.textContent = '❌ Error: ' + emsg(err) + (asMp4 ? ' (si es por memoria, prueba el formato TS)' : '') + ' (ver registro)'; }
   });
   ffmpeg.off('progress', onP); prog.hidden = true; btn.disabled = false;
 }
