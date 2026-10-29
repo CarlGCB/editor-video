@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cortar y unir vídeos sin recodificar</title>
+<link rel="stylesheet" href="style.css">
+<script src="coi-serviceworker.js"></script>
+</head>
+<body>
+<main>
+  <h1>✂️ Cortar y unir vídeos <small>sin recodificar · 100 % en tu navegador</small></h1>
+  <label class="drop" id="drop">
+    <input type="file" id="files" accept="video/*" multiple hidden>
+    <span>Arrastra vídeos aquí o haz clic para seleccionarlos</span>
+  </label>
+  <div class="note">⚠️ Con <code>-c copy</code> los cortes caen en el <b>keyframe anterior</b> al punto de inicio (puede haber desfases de 0–10 s). Los clips deben ser H.264/H.265 con el mismo códec, resolución y fps. Se exporta como <b>.ts</b> (úsalo en Chrome/Edge para guardar directo a disco).</div>
+  <div id="clips"></div>
+  <div class="bar">
+    <button id="export" disabled>Exportar vídeo final</button>
+    <progress id="prog" value="0" max="1" hidden></progress>
+    <span id="status"></span>
+  </div>
+  <a id="dl" class="dl" hidden>⬇️ Descargar</a>
+  <details><summary>Registro de FFmpeg</summary><pre id="log"></pre></details>
+</main>
+<script src="vendor/ffmpeg.js"></script>
+<script src="vendor/util.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
