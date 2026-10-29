@@ -15,6 +15,17 @@ section{margin-top:22px}section h2{font-size:1.1rem;margin:0 0 10px}
 ul{list-style:none;padding:0;margin:0}li{display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-top:1px solid #8b91b822;font-size:.85rem}
 li>span:first-child{word-break:break-all}li a{color:var(--acc);text-decoration:none}
 select{padding:8px;border-radius:6px;border:1px solid var(--mut);background:transparent;color:inherit}select option{background:var(--card)}
+.strip{display:flex;gap:10px;overflow-x:auto;padding:8px 2px 12px}
+.slide{flex:0 0 168px;background:var(--card);border:2px solid transparent;border-radius:10px;padding:6px;cursor:grab;user-select:none}
+.slide.active{border-color:var(--acc)}.slide.over{outline:2px dashed var(--acc)}.slide.drag{opacity:.4}
+.slide .th{position:relative;width:100%;aspect-ratio:16/9;background:#000;border-radius:6px;overflow:hidden;display:grid;place-items:center;color:#777;font-size:24px}
+.slide img{width:100%;height:100%;object-fit:cover;pointer-events:none}
+.slide .n{position:absolute;left:4px;top:4px;background:#000b;color:#fff;border-radius:4px;padding:0 6px;font-size:12px}
+.slide .nm{font-size:12px;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.slide .tm{font-size:11px;color:var(--mut)}.slide label{font-size:11px;color:var(--mut)}
+.dgrid{display:grid;grid-template-columns:minmax(0,1.3fr) 1fr;gap:14px}
+@media(max-width:700px){.dgrid{grid-template-columns:1fr}}
+#player{width:100%;border-radius:8px;background:#000}
 </style>
 <script src="coi-serviceworker.js"></script>
 </head>
@@ -47,7 +58,23 @@ select{padding:8px;border-radius:6px;border:1px solid var(--mut);background:tran
         <button class="ghost" id="tnone">Desmarcar todos</button></div>
       <div class="meta" id="tmsg">Elige dónde aplicarlo: en los vídeos marcados, en todos, o solo en uno con el botón «Borrar principio» de su tarjeta.</div>
     </div>
-    <div id="clips"></div>
+    <div class="meta" style="margin:10px 0 4px">Arrastra las diapositivas para ordenarlas: ese es el orden del vídeo final. Haz clic en una para previsualizarla y ajustar su recorte.</div>
+    <div id="strip" class="strip"></div>
+    <div id="detail" class="box" hidden>
+      <div class="dgrid">
+        <video id="player" controls preload="metadata"></video>
+        <div>
+          <h3 id="dname" style="word-break:break-all"></h3>
+          <div class="meta" id="dsig"></div>
+          <div class="row">Inicio <input type="number" id="dstart" step="0.1" min="0"> <button class="ghost" id="dps">📍 actual</button>
+            Fin <input type="number" id="dend" step="0.1" min="0"> <button class="ghost" id="dpe">📍 actual</button></div>
+          <div class="meta" id="ddur"></div>
+          <div class="row"><button id="dplay">▶ Ver recorte</button><button class="ghost" id="dtrim">Borrar principio</button></div>
+          <div class="row"><button class="ghost" id="dleft">← Mover</button><button class="ghost" id="dright">Mover →</button><button class="ghost" id="drm">Quitar</button></div>
+          <div class="meta" id="dnote"></div>
+        </div>
+      </div>
+    </div>
     <div class="bar">
       <button id="export" disabled>Exportar vídeo final</button>
       <progress id="prog" value="0" max="1" hidden></progress>
