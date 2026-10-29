@@ -3,10 +3,14 @@ const $ = id => document.getElementById(id);
 const say = m => { const el = document.getElementById('status'); if (el) el.textContent = m; };
 window.addEventListener('error', e => say('❌ Error: ' + e.message));
 window.addEventListener('unhandledrejection', e => say('❌ Error: ' + (e.reason?.message || e.reason)));
-document.getElementById('log').textContent = 'app.js v4 cargado\n';
-let ffmpeg, toBlobURL;
-try { ffmpeg = new FFmpegWASM.FFmpeg(); toBlobURL = FFmpegUtil.toBlobURL; }
-catch (e) { $('status').textContent = '❌ Faltan archivos de la carpeta vendor (ffmpeg.js / util.js). Revisa que se subió a GitHub.'; }
+document.getElementById('log').textContent = 'app.js v5 cargado\n';
+const toBlobURL = async (url, type) => {
+  const r = await fetch(url); if (!r.ok) throw new Error('no se pudo descargar ' + url);
+  return URL.createObjectURL(new Blob([await r.arrayBuffer()], { type }));
+};
+let ffmpeg;
+try { ffmpeg = new FFmpegWASM.FFmpeg(); }
+catch (e) { $('status').textContent = '❌ Faltan archivos de la carpeta vendor (ffmpeg.js). Revisa que se subió a GitHub.'; }
 let clips = [], ready = null, logBuf = [];
 
 ffmpeg?.on('log', ({ message }) => { logBuf.push(message); $('log').textContent += message + '\n'; });
@@ -40,6 +44,8 @@ async function probe(c, i) {
   const v = t.match(/Video: (\w+).*?, (\d{2,5}x\d{2,5}).*?([\d.]+) fps/);
   const a = t.match(/Audio: (\w+).*?(\d+) Hz/);
   c.sig = `${v?.[1] ?? '?'} ${v?.[2] ?? ''} ${v?.[3] ?? ''}fps · ${a?.[1] ?? 'sin audio'} ${a?.[2] ?? ''}Hz`;
+  const d = t.match(/Duration: (\d+):(\d+):([\d.]+)/);
+  if (d) { c.dur = +d[1] * 3600 + +d[2] * 60 + +d[3]; if (!c.end) c.end = +c.dur.toFixed(2); }
   c.vsig = v ? `${v[1]}|${v[2]}|${v[3]}|${a?.[1]}|${a?.[2]}` : '';
 }
 
@@ -73,9 +79,11 @@ function render() {
     const v = el.querySelector('video'), s = el.querySelector('.s'), e = el.querySelector('.e');
     const upd = () => { c.start = +s.value; c.end = +e.value; el.querySelector('[data-i]').textContent = `Duración: ${fmt(Math.max(0, c.end - c.start))}`; };
     v.onloadedmetadata = () => { c.dur = v.duration; if (!c.end) { c.end = +v.duration.toFixed(2); e.value = c.end; upd(); } };
+    v.onerror = () => { const n = document.createElement('div'); n.className = 'meta'; n.textContent = 'Sin vista previa: el navegador no reproduce este formato. Escribe los tiempos en segundos.'; v.replaceWith(n); };
     s.oninput = e.oninput = upd;
     el.onclick = ev => {
       const a = ev.target.dataset.a; if (!a) return;
+      if ((a === 'ps' || a === 'pe') && !v.isConnected) return;
       if (a === 'ps') { s.value = v.currentTime.toFixed(2); upd(); }
       if (a === 'pe') { e.value = v.currentTime.toFixed(2); upd(); }
       if (a === 'up' && i) [clips[i - 1], clips[i]] = [clips[i], clips[i - 1]];
@@ -91,8 +99,8 @@ function render() {
 async function exportVideo() {
   const btn = $('export'), prog = $('prog');
   if (!clips.length || !clips.every(c => c.end > c.start)) { $('status').textContent = 'Revisa: el fin debe ser mayor que el inicio.'; return; }
-  const bad = clips.find(c => !/^(h264|hevc)/.test(c.sig));
-  if (bad) { $('status').textContent = `"${bad.file.name}" no es H.264/H.265; no se puede exportar sin recodificar.`; return; }
+  const bad = clips.find(c => !/^(h264|hevc|mpeg4|mpeg2video)/.test(c.sig));
+  if (bad) { $('status').textContent = `"${bad.file.name}" tiene un códec que no se puede copiar sin recodificar (se admiten H.264, H.265, MPEG-4/Xvid y MPEG-2).`; return; }
   // Debe llamarse dentro del clic (antes de cualquier await largo)
   let writable = null;
   if (window.showSaveFilePicker) {
