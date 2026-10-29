@@ -5,7 +5,7 @@ const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;'
 const say = m => { $('cstat').textContent = m; };
 window.addEventListener('error', e => say('❌ Error: ' + emsg(e)));
 window.addEventListener('unhandledrejection', e => say('❌ Error: ' + emsg(e.reason)));
-$('log').textContent = 'app.js v10 cargado\n';
+$('log').textContent = 'app.js v11 cargado\n';
 
 const toBlobURL = async (url, type) => {
   const r = await fetch(url); if (!r.ok) throw new Error('no se pudo descargar ' + url);
@@ -123,7 +123,7 @@ $('toEditor').onclick = () => {
 
 /* ---------- Paso 2: editor ---------- */
 async function addFiles(list) {
-  for (const file of list) clips.push({ file, url: URL.createObjectURL(file), start: 0, end: 0, dur: 0, sig: 'Analizando…', vsig: '' });
+  for (const file of list) clips.push({ file, url: URL.createObjectURL(file), start: 0, end: 0, dur: 0, sel: true, sig: 'Analizando…', vsig: '' });
   render();
   try { await loadFFmpeg(); } catch (e) { say('❌ No se pudo cargar FFmpeg: ' + emsg(e)); return; }
   for (const c of clips.filter(c => c.sig === 'Analizando…')) {
@@ -147,12 +147,14 @@ function render() {
         <button class="ghost" data-a="ps">📍 actual</button>
         Fin <input type="number" step="0.1" min="0" class="e" value="${c.end}">
         <button class="ghost" data-a="pe">📍 actual</button></div>
+      <label class="meta"><input type="checkbox" class="sel" ${c.sel ? 'checked' : ''}> Aplicar recorte inicial</label>
       <div class="meta" data-i>Duración: ${fmt(Math.max(0, c.end - c.start))}</div>
       <div class="row"><button class="ghost" data-a="up">↑</button><button class="ghost" data-a="dn">↓</button><button class="ghost" data-a="rm">Quitar</button></div></div>`;
     const v = el.querySelector('video'), s = el.querySelector('.s'), e = el.querySelector('.e');
     const upd = () => { c.start = +s.value; c.end = +e.value; el.querySelector('[data-i]').textContent = `Duración: ${fmt(Math.max(0, c.end - c.start))}`; };
     v.onloadedmetadata = () => { c.dur = v.duration; if (!c.end) { c.end = +v.duration.toFixed(2); e.value = c.end; upd(); } };
     v.onerror = () => { const n = document.createElement('div'); n.className = 'meta'; n.textContent = 'Sin vista previa: el navegador no reproduce este formato. Escribe los tiempos en segundos.'; v.replaceWith(n); };
+    el.querySelector('.sel').onchange = ev => { c.sel = ev.target.checked; };
     s.oninput = e.oninput = upd;
     el.onclick = ev => {
       const a = ev.target.dataset.a; if (!a) return;
@@ -168,6 +170,20 @@ function render() {
   });
   $('export').disabled = !clips.length;
 }
+
+$('tapply').onclick = () => {
+  const t = (+$('tmin').value || 0) * 60 + (+$('tsec').value || 0), skip = []; let ok = 0;
+  const marked = clips.filter(c => c.sel);
+  if (!marked.length) { $('tmsg').textContent = 'No hay vídeos marcados.'; return; }
+  for (const c of marked) {
+    if (c.sig === 'Analizando…' || (c.end && t >= c.end)) { skip.push(c.file.name); continue; }
+    c.start = t; ok++;
+  }
+  render();
+  $('tmsg').textContent = `Inicio fijado en ${fmt(t).slice(0, 8)} en ${ok} vídeo(s)` + (skip.length ? `. Omitidos (más cortos o aún analizando): ${skip.join(', ')}` : '') + '. Con copia sin recodificar, el corte real puede caer unos segundos antes.';
+};
+$('tall').onclick = () => { clips.forEach(c => c.sel = true); render(); };
+$('tnone').onclick = () => { clips.forEach(c => c.sel = false); render(); };
 
 async function exportVideo() {
   const btn = $('export'), prog = $('prog'), st = $('status');
