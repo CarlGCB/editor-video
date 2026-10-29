@@ -4,7 +4,7 @@ const emsg = e => String(e?.message ?? e);
 const say = m => { const el = document.getElementById('status'); if (el) el.textContent = m; };
 window.addEventListener('error', e => say('❌ Error: ' + emsg(e)));
 window.addEventListener('unhandledrejection', e => say('❌ Error: ' + emsg(e.reason)));
-document.getElementById('log').textContent = 'app.js v8 cargado\n';
+document.getElementById('log').textContent = 'app.js v9 cargado\n';
 const toBlobURL = async (url, type) => {
   const r = await fetch(url); if (!r.ok) throw new Error('no se pudo descargar ' + url);
   return URL.createObjectURL(new Blob([await r.arrayBuffer()], { type }));
@@ -148,14 +148,13 @@ loadFFmpeg().catch(e => $('status').textContent = '❌ No se pudo cargar FFmpeg:
 // ---- Conversor a MP4 (se inserta solo, sin tocar index.html) ----
 (() => {
   const st = document.createElement('style');
-  st.textContent = '#cmode{padding:8px;border-radius:6px;border:1px solid var(--mut);background:transparent;color:inherit}#cmode option{background:var(--card)}';
+  st.textContent = '';
   document.head.append(st);
   const sec = document.createElement('section'); sec.className = 'clip';
   sec.innerHTML = `<div style="grid-column:1/-1"><h2 style="margin:0 0 8px;font-size:1.1rem">🔄 Convertir vídeo a MP4</h2>
-    <div class="meta">«Rápido» solo cambia el contenedor (segundos, sin perder calidad), pero el navegador puede seguir sin reproducirlo. «Recodificar» lo pasa a H.264 (se reproduce en todas partes) pero es lento: prueba antes con un trozo corto.</div>
+    <div class="meta">Convierte el vídeo a MP4 real (H.264 + AAC), reproducible en cualquier sitio, y lo añade al editor. Recodificar en el navegador es lento: prueba antes con un trozo corto.</div>
     <div class="row"><input type="file" id="cfile" accept="video/*,.avi,.mkv,.wmv,.flv">
-      <select id="cmode"><option value="copy">Rápido (copiar)</option><option value="enc">Recodificar H.264 (lento)</option></select>
-      <button id="cgo" disabled>Convertir</button></div>
+      <button id="cgo" disabled>Convertir a MP4</button></div>
     <div class="row"><progress id="cprog" value="0" max="1" hidden></progress><span id="cstat" class="meta"></span></div>
     <a id="cdl" class="dl" hidden>⬇️ Guardar también el MP4</a></div>`;
   document.querySelector('main').insertBefore(sec, document.querySelector('details'));
@@ -173,11 +172,9 @@ loadFFmpeg().catch(e => $('status').textContent = '❌ No se pudo cargar FFmpeg:
       await loadFFmpeg();
       ffmpeg.on('progress', onP);
       stat.textContent = 'Convirtiendo…';
-      const args = g('cmode').value === 'copy'
-        ? ['-c', 'copy']
-        : ['-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '128k'];
+      const args = ['-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '20', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '160k'];
       const code = await withMounted(file, 'c', p => ffmpeg.exec(['-i', p, '-map', '0:v:0', '-map', '0:a:0?', ...args, '-movflags', '+faststart', 'out.mp4']));
-      if (code !== 0) throw new Error('FFmpeg no pudo convertirlo. Si usaste «Rápido», prueba «Recodificar» (ver registro).');
+      if (code !== 0) throw new Error('FFmpeg no pudo convertirlo (ver registro).');
       const data = await ffmpeg.readFile('out.mp4'); await ffmpeg.deleteFile('out.mp4');
       const secs = ((performance.now() - t0) / 1000).toFixed(1);
       const f = new File([data], outName, { type: 'video/mp4' });
