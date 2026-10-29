@@ -29,7 +29,7 @@ async function withMounted(file, i, fn) {
 
 async function probe(c, i) {
   logBuf = [];
-  await withMounted(c.file, i, p => ffmpeg.exec(['-hide_banner', '-i', p])); // sale con error: es normal
+  await withMounted(c.file, i, p => ffmpeg.exec(['-hide_banner', '-i', p], 20000)); // sale con error: es normal
   const t = logBuf.join('\n');
   const v = t.match(/Video: (\w+).*?, (\d{2,5}x\d{2,5}).*?([\d.]+) fps/);
   const a = t.match(/Audio: (\w+).*?(\d+) Hz/);
@@ -38,13 +38,13 @@ async function probe(c, i) {
 }
 
 async function addFiles(list) {
-  await loadFFmpeg();
-  for (const file of list) {
-    const c = { file, url: URL.createObjectURL(file), start: 0, end: 0, dur: 0 };
-    clips.push(c);
-    try { await probe(c, clips.length - 1); } catch (e) { c.sig = 'No se pudo analizar'; }
-  }
+  for (const file of list) clips.push({ file, url: URL.createObjectURL(file), start: 0, end: 0, dur: 0, sig: 'Analizando…', vsig: '' });
   render();
+  try { await loadFFmpeg(); } catch (e) { $('status').textContent = '❌ No se pudo cargar FFmpeg: ' + e.message; return; }
+  for (const c of clips.filter(c => c.sig === 'Analizando…')) {
+    try { await probe(c, clips.indexOf(c)); } catch (e) { c.sig = 'No se pudo analizar: ' + e.message; }
+    render();
+  }
 }
 
 const fmt = s => new Date(s * 1000).toISOString().slice(11, 22);
@@ -123,9 +123,9 @@ async function exportVideo() {
   prog.hidden = true; btn.disabled = false;
 }
 
-$('files').onchange = e => addFiles([...e.target.files]);
+$('files').onchange = e => { addFiles([...e.target.files]); e.target.value = ''; };
 $('drop').ondragover = e => { e.preventDefault(); $('drop').classList.add('over'); };
 $('drop').ondragleave = () => $('drop').classList.remove('over');
 $('drop').ondrop = e => { e.preventDefault(); $('drop').classList.remove('over'); addFiles([...e.dataTransfer.files].filter(f => f.type.startsWith('video/'))); };
 $('export').onclick = exportVideo;
-loadFFmpeg();
+loadFFmpeg().catch(e => $('status').textContent = '❌ No se pudo cargar FFmpeg: ' + e.message);
