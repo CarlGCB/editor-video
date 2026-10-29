@@ -1,13 +1,19 @@
 const CORE = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/umd';
 const $ = id => document.getElementById(id);
-const { FFmpeg } = FFmpegWASM, { toBlobURL } = FFmpegUtil;
-const ffmpeg = new FFmpeg();
+const say = m => { const el = document.getElementById('status'); if (el) el.textContent = m; };
+window.addEventListener('error', e => say('❌ Error: ' + e.message));
+window.addEventListener('unhandledrejection', e => say('❌ Error: ' + (e.reason?.message || e.reason)));
+document.getElementById('log').textContent = 'app.js v4 cargado\n';
+let ffmpeg, toBlobURL;
+try { ffmpeg = new FFmpegWASM.FFmpeg(); toBlobURL = FFmpegUtil.toBlobURL; }
+catch (e) { $('status').textContent = '❌ Faltan archivos de la carpeta vendor (ffmpeg.js / util.js). Revisa que se subió a GitHub.'; }
 let clips = [], ready = null, logBuf = [];
 
-ffmpeg.on('log', ({ message }) => { logBuf.push(message); $('log').textContent += message + '\n'; });
+ffmpeg?.on('log', ({ message }) => { logBuf.push(message); $('log').textContent += message + '\n'; });
 
 function loadFFmpeg() {
   return ready ??= (async () => {
+    if (!ffmpeg) throw new Error('faltan los archivos de vendor/');
     $('status').textContent = 'Cargando FFmpeg (~30 MB, solo la primera vez)…';
     await ffmpeg.load({
       classWorkerURL: new URL('vendor/814.ffmpeg.js', location.href).href,
@@ -123,7 +129,7 @@ async function exportVideo() {
   prog.hidden = true; btn.disabled = false;
 }
 
-$('files').onchange = e => { addFiles([...e.target.files]); e.target.value = ''; };
+$('files').onchange = e => { const l = [...e.target.files]; say(`Recibido: ${l.length} archivo(s)`); addFiles(l); e.target.value = ''; };
 $('drop').ondragover = e => { e.preventDefault(); $('drop').classList.add('over'); };
 $('drop').ondragleave = () => $('drop').classList.remove('over');
 $('drop').ondrop = e => { e.preventDefault(); $('drop').classList.remove('over'); addFiles([...e.dataTransfer.files].filter(f => f.type.startsWith('video/'))); };
