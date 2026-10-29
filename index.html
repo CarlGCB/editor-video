@@ -46,7 +46,7 @@ select{padding:8px;border-radius:6px;border:1px solid var(--mut);background:tran
   </section>
   <section id="editor" hidden>
     <h2>2. Editor</h2>
-    <div class="note">⚠️ Con <code>-c copy</code> los cortes caen en el <b>keyframe anterior</b> al inicio (puede haber desfases de 0–10 s). Los clips deben tener el mismo códec, resolución y fps. Se exporta como <b>.ts</b> (usa Chrome/Edge para guardar directo a disco).</div>
+    <div class="note">⚠️ Con <code>-c copy</code> los cortes caen en el <b>keyframe anterior</b> al inicio (puede haber desfases de 0–10 s). Los clips deben tener el mismo códec, resolución y fps. Se exporta como <b>MP4</b> (hasta unos 2 GB en total; para vídeos más largos elige TS). Usa Chrome/Edge para guardar directo a disco.</div>
     <div class="box" id="trim" style="margin-bottom:12px">
       <h3 style="margin-bottom:8px">Quitar el inicio de los vídeos</h3>
       <div class="row">Quitar los primeros
@@ -77,6 +77,7 @@ select{padding:8px;border-radius:6px;border:1px solid var(--mut);background:tran
     </div>
     <div class="bar">
       <button id="export" disabled>Exportar vídeo final</button>
+      <select id="fmt" title="Formato de salida"><option value="mp4">MP4 (recomendado)</option><option value="ts">TS (vídeos muy largos)</option></select>
       <progress id="prog" value="0" max="1" hidden></progress>
       <span id="status"></span>
     </div>
