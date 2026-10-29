@@ -5,7 +5,7 @@ const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;'
 const say = m => { $('cstat').textContent = m; };
 window.addEventListener('error', e => say('❌ Error: ' + emsg(e)));
 window.addEventListener('unhandledrejection', e => say('❌ Error: ' + emsg(e.reason)));
-$('log').textContent = 'app.js v12 cargado\n';
+$('log').textContent = 'app.js v13 cargado\n';
 
 const toBlobURL = async (url, type) => {
   const r = await fetch(url); if (!r.ok) throw new Error('no se pudo descargar ' + url);
@@ -121,56 +121,103 @@ $('toEditor').onclick = () => {
   $('editor').scrollIntoView({ behavior: 'smooth', block: 'start' });
 };
 
-/* ---------- Paso 2: editor ---------- */
+/* ---------- Paso 2: editor con diapositivas ---------- */
+let cur = null, dragIdx = -1, stopFn = null, playerFor = null;
+const fmt = s => new Date(Math.max(0, s) * 1000).toISOString().slice(11, 22);
+const hms = s => fmt(s).slice(0, 8);
+
+function makeThumb(c) {                       // fotograma de miniatura (si el navegador puede reproducirlo)
+  return new Promise(res => {
+    const v = document.createElement('video'); v.muted = true; v.preload = 'auto'; v.src = c.url;
+    const done = t => { clearTimeout(to); v.removeAttribute('src'); v.load(); res(t); };
+    const to = setTimeout(() => done(null), 8000);
+    v.onloadeddata = () => { if (!c.end && isFinite(v.duration)) { c.end = +v.duration.toFixed(2); renderAll(); } v.currentTime = Math.min(1, (v.duration || 2) / 2); };
+    v.onseeked = () => {
+      try { const cv = document.createElement('canvas'); cv.width = 240; cv.height = Math.round(240 * v.videoHeight / v.videoWidth) || 135;
+        cv.getContext('2d').drawImage(v, 0, 0, cv.width, cv.height); done(cv.toDataURL('image/jpeg', 0.6)); } catch { done(null); }
+    };
+    v.onerror = () => done(null);
+  });
+}
+
 async function addFiles(list) {
-  for (const file of list) clips.push({ file, url: URL.createObjectURL(file), start: 0, end: 0, dur: 0, sel: true, sig: 'Analizando…', vsig: '' });
-  render();
+  const added = [];
+  for (const file of list) { const c = { file, url: URL.createObjectURL(file), start: 0, end: 0, dur: 0, mark: true, thumb: null, sig: 'Analizando…', vsig: '' }; clips.push(c); added.push(c); }
+  if (!cur && clips.length) cur = clips[0];
+  renderAll();
+  added.forEach(c => makeThumb(c).then(t => { c.thumb = t; renderStrip(); }));
   try { await loadFFmpeg(); } catch (e) { say('❌ No se pudo cargar FFmpeg: ' + emsg(e)); return; }
   for (const c of clips.filter(c => c.sig === 'Analizando…')) {
     try { await run(() => probe(c, clips.indexOf(c))); } catch (e) { c.sig = 'No se pudo analizar: ' + emsg(e); }
-    render();
+    renderAll();
   }
 }
 
-const fmt = s => new Date(s * 1000).toISOString().slice(11, 22);
+function renderAll() { renderStrip(); refreshDetail(); }
 
-function render() {
-  const box = $('clips'); box.innerHTML = '';
+function renderStrip() {
+  const box = $('strip'); box.innerHTML = '';
   const base = clips[0]?.vsig;
   clips.forEach((c, i) => {
-    const el = document.createElement('div'); el.className = 'clip';
-    const bad = c.vsig !== base;
-    el.innerHTML = `<video controls preload="metadata" src="${c.url}"></video>
-      <div><h3>${i + 1}. ${esc(c.file.name)}</h3>
-      <div class="meta ${bad ? 'bad' : ''}">${esc(c.sig)}${bad ? ' ⚠️ distinto al clip 1: la unión puede fallar' : ''}</div>
-      <div class="row">Inicio <input type="number" step="0.1" min="0" class="s" value="${c.start}">
-        <button class="ghost" data-a="ps">📍 actual</button>
-        Fin <input type="number" step="0.1" min="0" class="e" value="${c.end}">
-        <button class="ghost" data-a="pe">📍 actual</button></div>
-      <label class="meta"><input type="checkbox" class="sel" ${c.sel ? 'checked' : ''}> Marcado para «Borrar Principio»</label>
-      <div class="meta" data-i>Duración: ${fmt(Math.max(0, c.end - c.start))}</div>
-      <div class="row"><button class="ghost" data-a="trim">Borrar principio</button><button class="ghost" data-a="up">↑</button><button class="ghost" data-a="dn">↓</button><button class="ghost" data-a="rm">Quitar</button></div></div>`;
-    const v = el.querySelector('video'), s = el.querySelector('.s'), e = el.querySelector('.e');
-    const upd = () => { c.start = +s.value; c.end = +e.value; el.querySelector('[data-i]').textContent = `Duración: ${fmt(Math.max(0, c.end - c.start))}`; };
-    v.onloadedmetadata = () => { c.dur = v.duration; if (!c.end) { c.end = +v.duration.toFixed(2); e.value = c.end; upd(); } };
-    v.onerror = () => { const n = document.createElement('div'); n.className = 'meta'; n.textContent = 'Sin vista previa: el navegador no reproduce este formato. Escribe los tiempos en segundos.'; v.replaceWith(n); };
-    el.querySelector('.sel').onchange = ev => { c.sel = ev.target.checked; };
-    s.oninput = e.oninput = upd;
-    el.onclick = ev => {
-      const a = ev.target.dataset.a; if (!a) return;
-      if (a === 'trim') { trimStart([c]); return; }
-      if ((a === 'ps' || a === 'pe') && !v.isConnected) return;
-      if (a === 'ps') { s.value = v.currentTime.toFixed(2); upd(); }
-      if (a === 'pe') { e.value = v.currentTime.toFixed(2); upd(); }
-      if (a === 'up' && i) [clips[i - 1], clips[i]] = [clips[i], clips[i - 1]];
-      if (a === 'dn' && i < clips.length - 1) [clips[i + 1], clips[i]] = [clips[i], clips[i + 1]];
-      if (a === 'rm') clips.splice(i, 1);
-      if (['up', 'dn', 'rm'].includes(a)) render();
+    const el = document.createElement('div'); el.className = 'slide' + (c === cur ? ' active' : ''); el.draggable = true;
+    el.innerHTML = `<div class="th">${c.thumb ? `<img src="${c.thumb}" alt="">` : '🎞️'}<span class="n">${i + 1}</span></div>
+      <div class="nm" title="${esc(c.file.name)}">${esc(c.file.name)}</div>
+      <div class="tm">${hms(c.start)} → ${hms(c.end)}${c.vsig !== base ? ' ⚠️' : ''}</div>
+      <label><input type="checkbox" ${c.mark ? 'checked' : ''}> marcado</label>`;
+    const chk = el.querySelector('input');
+    chk.onclick = e => e.stopPropagation();
+    chk.onchange = e => { c.mark = e.target.checked; };
+    el.onclick = () => select(c);
+    el.ondragstart = e => { dragIdx = i; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(i)); el.classList.add('drag'); };
+    el.ondragend = () => { dragIdx = -1; renderStrip(); };
+    el.ondragover = e => { e.preventDefault(); el.classList.add('over'); };
+    el.ondragleave = () => el.classList.remove('over');
+    el.ondrop = e => {
+      e.preventDefault(); if (dragIdx < 0 || dragIdx === i) return;
+      const [m] = clips.splice(dragIdx, 1); clips.splice(i, 0, m); dragIdx = -1; renderAll();
     };
     box.append(el);
   });
   $('export').disabled = !clips.length;
+  $('detail').hidden = !cur;
 }
+
+function select(c) { cur = c; renderAll(); }
+
+function refreshDetail() {
+  const c = cur, p = $('player'); $('detail').hidden = !c; if (!c) return;
+  if (playerFor !== c) {                      // el reproductor solo se recarga al cambiar de vídeo
+    if (stopFn) p.removeEventListener('timeupdate', stopFn); stopFn = null;
+    p.pause(); p.src = c.url; playerFor = c; $('dnote').textContent = '';
+  }
+  $('dname').textContent = `${clips.indexOf(c) + 1}. ${c.file.name}`;
+  $('dsig').textContent = c.sig + (c.vsig !== clips[0]?.vsig ? ' ⚠️ distinto al clip 1: la unión puede fallar' : '');
+  $('dstart').value = c.start; $('dend').value = c.end;
+  $('ddur').textContent = `Duración del recorte: ${hms(c.end - c.start)}`;
+}
+
+const player = $('player');
+player.onloadedmetadata = () => { if (cur && !cur.end && isFinite(player.duration)) { cur.end = +player.duration.toFixed(2); renderAll(); } };
+player.onerror = () => { $('dnote').textContent = 'Sin vista previa: el navegador no reproduce este formato. Convierte a MP4 o escribe los tiempos a mano.'; };
+const onTimes = () => { if (!cur) return; cur.start = +$('dstart').value; cur.end = +$('dend').value; $('ddur').textContent = `Duración del recorte: ${hms(cur.end - cur.start)}`; renderStrip(); };
+$('dstart').oninput = $('dend').oninput = onTimes;
+$('dps').onclick = () => { if (cur) { cur.start = +player.currentTime.toFixed(2); renderAll(); } };
+$('dpe').onclick = () => { if (cur) { cur.end = +player.currentTime.toFixed(2); renderAll(); } };
+$('dplay').onclick = () => {                  // reproduce solo el tramo entre Inicio y Fin
+  if (!cur) return;
+  if (stopFn) player.removeEventListener('timeupdate', stopFn);
+  const c = cur; player.currentTime = c.start; player.play();
+  stopFn = () => { if (player.currentTime >= c.end) { player.pause(); player.removeEventListener('timeupdate', stopFn); } };
+  player.addEventListener('timeupdate', stopFn);
+};
+const move = d => { const i = clips.indexOf(cur), j = i + d; if (!cur || j < 0 || j >= clips.length) return; [clips[i], clips[j]] = [clips[j], clips[i]]; renderAll(); };
+$('dleft').onclick = () => move(-1); $('dright').onclick = () => move(1);
+$('drm').onclick = () => {
+  const i = clips.indexOf(cur); if (i < 0) return;
+  clips.splice(i, 1); cur = clips[i] ?? clips[i - 1] ?? null; playerFor = null;
+  if (!cur) { player.pause(); player.removeAttribute('src'); player.load(); }
+  renderAll();
+};
 
 function trimStart(list) {
   const t = (+$('tmin').value || 0) * 60 + (+$('tsec').value || 0), skip = []; let ok = 0;
@@ -179,12 +226,13 @@ function trimStart(list) {
     if (c.sig === 'Analizando…' || (c.end && t >= c.end)) { skip.push(c.file.name); continue; }
     c.start = t; ok++;
   }
-  render();
+  renderAll();
   $('tmsg').textContent = `Inicio fijado en ${fmt(t).slice(0, 8)} en ${ok} vídeo(s)` + (skip.length ? `. Omitidos (más cortos o aún analizando): ${skip.join(', ')}` : '') + '. Con copia sin recodificar, el corte real puede caer unos segundos antes.';
 }
-$('tapply').onclick = () => trimStart($('tscope').value === 'all' ? clips : clips.filter(c => c.sel));
-$('tall').onclick = () => { clips.forEach(c => c.sel = true); render(); };
-$('tnone').onclick = () => { clips.forEach(c => c.sel = false); render(); };
+$('dtrim').onclick = () => cur && trimStart([cur]);
+$('tapply').onclick = () => trimStart($('tscope').value === 'all' ? clips : clips.filter(c => c.mark));
+$('tall').onclick = () => { clips.forEach(c => c.mark = true); renderStrip(); };
+$('tnone').onclick = () => { clips.forEach(c => c.mark = false); renderStrip(); };
 
 async function exportVideo() {
   const btn = $('export'), prog = $('prog'), st = $('status');
