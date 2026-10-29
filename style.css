@@ -16,3 +16,4 @@ button.ghost{background:transparent;border:1px solid var(--mut);color:var(--fg)}
 .bar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:16px}.bar button{padding:12px 22px;font-size:1rem}
 progress{flex:1;min-width:120px}.dl{display:inline-block;margin-top:12px;padding:12px 20px;background:#2fb26b;color:#fff;border-radius:8px;text-decoration:none}
 pre{max-height:240px;overflow:auto;font-size:.72rem;background:var(--card);padding:10px;border-radius:8px}
+[hidden]{display:none!important}
