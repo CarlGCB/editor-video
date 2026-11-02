@@ -5,7 +5,7 @@ const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;'
 const say = m => { $('cstat').textContent = m; };
 window.addEventListener('error', e => say('❌ Error: ' + emsg(e)));
 window.addEventListener('unhandledrejection', e => say('❌ Error: ' + emsg(e.reason)));
-$('log').textContent = 'app.js v16 cargado\n';
+$('log').textContent = 'app.js v17 cargado\n';
 
 const toBlobURL = async (url, type) => {
   const r = await fetch(url); if (!r.ok) throw new Error('no se pudo descargar ' + url);
@@ -122,7 +122,7 @@ $('toEditor').onclick = () => {
 };
 
 /* ---------- Paso 2: editor con diapositivas ---------- */
-let cur = null, dragIdx = -1, stopFn = null, playerFor = null;
+let lastMark = -1, cur = null, dragIdx = -1, stopFn = null, playerFor = null;
 const fmt = s => new Date(Math.max(0, s) * 1000).toISOString().slice(11, 22);
 const hms = s => fmt(s).slice(0, 8);
 
@@ -162,10 +162,14 @@ function renderStrip() {
     const el = document.createElement('div'); el.className = 'slide' + (c === cur ? ' active' : ''); el.draggable = true;
     el.innerHTML = `<div class="th">${c.thumb ? `<img src="${c.thumb}" alt="">` : '🎞️'}<span class="n">${i + 1}</span></div>
       <div class="nm" title="${esc(c.file.name)}">${esc(c.file.name)}</div>
-      <div class="tm">${hms(c.start)} → ${hms(c.end)}${c.vsig !== base ? ' ⚠️' : ''}</div>
+      <div class="tm">${c.start > 0 ? `✂ −${+c.start.toFixed(1)} s · ` : ''}${hms(c.start)} → ${hms(c.end)}${c.vsig !== base ? ' ⚠️' : ''}</div>
       <label><input type="checkbox" ${c.mark ? 'checked' : ''}> marcado</label>`;
     const chk = el.querySelector('input');
-    chk.onclick = e => e.stopPropagation();
+    chk.onclick = e => {
+      e.stopPropagation();
+      if (e.shiftKey && lastMark >= 0) { for (let k = Math.min(lastMark, i); k <= Math.max(lastMark, i); k++) clips[k].mark = chk.checked; lastMark = i; renderStrip(); return; }
+      lastMark = i;
+    };
     chk.onchange = e => { c.mark = e.target.checked; };
     el.onclick = () => select(c);
     el.ondragstart = e => { dragIdx = i; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(i)); el.classList.add('drag'); };
@@ -221,7 +225,7 @@ $('drm').onclick = () => {
 
 function trimStart(list) {
   const t = (+$('tmin').value || 0) * 60 + (+$('tsec').value || 0), skip = []; let ok = 0;
-  if (!list.length) { $('tmsg').textContent = 'No hay vídeos marcados.'; return; }
+  if (!list.length) { $('tmsg').textContent = 'No hay vídeos en ese grupo.'; return; }
   for (const c of list) {
     if (c.sig === 'Analizando…' || (c.end && t >= c.end)) { skip.push(c.file.name); continue; }
     c.start = t; ok++;
@@ -230,15 +234,18 @@ function trimStart(list) {
   $('tmsg').textContent = `Inicio fijado en ${fmt(t).slice(0, 8)} en ${ok} vídeo(s)` + (skip.length ? `. Omitidos (más cortos o aún analizando): ${skip.join(', ')}` : '') + '. Con copia sin recodificar, el corte real puede caer unos segundos antes.';
 }
 $('dtrim').onclick = () => cur && trimStart([cur]);
-$('tapply').onclick = () => trimStart($('tscope').value === 'all' ? clips : clips.filter(c => c.mark));
+$('tapply').onclick = () => { const v = $('tscope').value; trimStart(v === 'all' ? clips : clips.filter(c => v === 'unmarked' ? !c.mark : c.mark)); };
+$('tinv').onclick = () => { clips.forEach(c => c.mark = !c.mark); renderStrip(); };
 $('tall').onclick = () => { clips.forEach(c => c.mark = true); renderStrip(); };
 $('tnone').onclick = () => { clips.forEach(c => c.mark = false); renderStrip(); };
 
 let cancelled = false;
-const durTxt = s => { s = Math.max(0, Math.round(s)); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60); return h ? `${h} h ${m} min` : `${m} min ${s % 60} s`; };
+const clk = s => { s = Math.max(0, Math.round(s)); return [Math.floor(s / 3600), Math.floor(s % 3600 / 60), s % 60].map(x => String(x).padStart(2, '0')).join(':'); };
+try { $('auto').checked = localStorage.getItem('autodl') === '1'; } catch {}
+$('auto').onchange = () => { try { localStorage.setItem('autodl', $('auto').checked ? '1' : '0'); } catch {} };
 
 async function exportVideo() {
-  const btn = $('export'), prog = $('prog'), st = $('status'), mode = $('fmt').value, asMp4 = mode !== 'ts', enc = mode === 'enc', ext = asMp4 ? 'mp4' : 'ts';
+  const btn = $('export'), prog = $('prog'), st = $('status'), mode = $('fmt').value, asMp4 = mode !== 'ts', enc = mode === 'enc', ext = asMp4 ? 'mp4' : 'ts', auto = $('auto').checked;
   if (!clips.length || !clips.every(c => c.end > c.start)) { st.textContent = 'Revisa: el fin debe ser mayor que el inicio.'; return; }
   if (clips.some(c => c.sig === 'Analizando…')) { st.textContent = 'Espera a que termine el análisis de los vídeos.'; return; }
   const bad = clips.find(c => !/^(h264|hevc|mpeg4|mpeg2video)/.test(c.sig));
@@ -253,9 +260,9 @@ async function exportVideo() {
     tgt = { W: ev(+m[1]), H: ev(+m[2]), FPS: +m[3] || 25 };
     vk = Math.min(8000, Math.max(300, Math.floor((1.6e9 * 8 / totalSec - 128000) / 1000))); // el MP4 final debe caber en memoria
   }
-  // Debe llamarse dentro del clic (antes de cualquier await largo)
+  // Debe llamarse dentro del clic (antes de cualquier await largo). Con descarga automática no se pregunta nada.
   let writable = null;
-  if (window.showSaveFilePicker) {
+  if (!auto && window.showSaveFilePicker) {
     try { writable = await (await showSaveFilePicker({ suggestedName: 'final.' + ext, types: [asMp4 ? { description: 'MP4', accept: { 'video/mp4': ['.mp4'] } } : { description: 'MPEG-TS', accept: { 'video/mp2t': ['.ts'] } }] })).createWritable(); }
     catch (e) { if (e.name === 'AbortError') return; }
   }
@@ -263,15 +270,36 @@ async function exportVideo() {
   const cancel = $('cancel'); cancel.hidden = false;
   cancel.onclick = () => { cancelled = true; try { ffmpeg.terminate(); } catch {} ready = null; };
   let wl = null; try { wl = await navigator.wakeLock?.request('screen'); } catch {}   // evita que el equipo se duerma
-  const n = clips.length, steps = asMp4 ? n + 1 : n; let step = 0, offset = 0, size = 0, doneSec = 0; const blobParts = [], partFiles = [];
-  const onP = ({ progress }) => { prog.value = (step + Math.min(Math.max(progress, 0), 1)) / steps; };
+  const n = clips.length, steps = asMp4 ? n + 1 : n; let step = 0, offset = 0, size = 0, doneSec = 0, curLen = 0, procSec = 0, joining = false, eta = null, phaseTxt = '';
+  const blobParts = [], partFiles = [], t0 = performance.now();
+
+  // ---- cuenta atrás: se actualiza cada segundo entre avisos de progreso de FFmpeg ----
+  const eb = $('etabox'); eb.hidden = false; $('elabel').textContent = 'Tiempo restante';
+  const tick = () => {
+    const now = performance.now(), rem = joining || !eta ? null : Math.max(0, eta.rem - (now - eta.at) / 1000);
+    $('ephase').textContent = phaseTxt;
+    $('eclock').textContent = joining ? 'Casi listo…' : rem === null ? 'Calculando…' : clk(rem);
+    $('eprog').textContent = `Procesado ${clk(procSec)} de ${clk(totalSec)} (${Math.min(100, Math.round(100 * procSec / totalSec))} %) · Transcurrido ${clk((now - t0) / 1000)}` + (eta ? ` · velocidad ×${eta.sp.toFixed(2)}` : '');
+    $('eend').textContent = rem === null ? '' : `Termina hacia las ${new Date(Date.now() + rem * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} (estimación; luego se une el resultado)`;
+  };
+  const setPhase = t => { phaseTxt = t; st.textContent = t; tick(); };
+  const updEta = () => {
+    const now = performance.now(), el = (now - t0) / 1000;
+    if (procSec > 1 && el > 2) { const sp = procSec / el; eta = { rem: (totalSec - procSec) / sp + (asMp4 ? 3 + totalSec * 0.001 : 0), at: now, sp }; }
+  };
+  const timer = setInterval(tick, 1000); tick();
+  const onP = ({ progress }) => {
+    const p = Math.min(Math.max(progress, 0), 1); prog.value = (step + p) / steps;
+    if (joining || step >= n) return;
+    procSec = doneSec + p * curLen; updEta();
+  };
   ffmpeg.on('progress', onP);
-  const t0 = performance.now();
+
   await run(async () => {
     try {
       for (let i = 0; i < n; i++, step++) {
-        const c = clips[i], out = `p${i}.${ext}`;
-        st.textContent = `${enc ? 'Recodificando' : 'Recortando'} ${i + 1}/${n}…` + (doneSec ? st.dataset.eta || '' : '');
+        const c = clips[i], out = `p${i}.${ext}`; curLen = lens[i];
+        setPhase(`${enc ? 'Recodificando' : 'Recortando'} vídeo ${i + 1} de ${n}: ${c.file.name}`);
         const code = await withMounted(c.file, i, p => ffmpeg.exec(['-ss', String(c.start), '-i', p, '-t', String(lens[i]),
           ...(enc ? ['-map', '0:v:0', '-map', '0:a:0?',
               '-vf', `scale=${tgt.W}:${tgt.H}:force_original_aspect_ratio=decrease,pad=${tgt.W}:${tgt.H}:(ow-iw)/2:(oh-ih)/2,fps=${tgt.FPS},format=yuv420p`,
@@ -293,38 +321,41 @@ async function exportVideo() {
           if (writable) await writable.write(data); else blobParts.push(data);
         }
         await ffmpeg.deleteFile(out);           // libera la RAM de wasm tras cada clip
-        doneSec += lens[i];
-        const sp = doneSec / ((performance.now() - t0) / 1000);
-        st.dataset.eta = ` · velocidad ×${sp.toFixed(2)} · quedan ~${durTxt((totalSec - doneSec) / sp)}`;
-        st.textContent = `${enc ? 'Recodificado' : 'Recortado'} ${i + 1}/${n}` + st.dataset.eta;
+        doneSec += lens[i]; procSec = doneSec; updEta(); tick();
       }
       if (asMp4) {
         const sum = partFiles.reduce((a, f) => a + f.size, 0);
         if (sum > 1.9e9) throw new Error(`El resultado (${(sum / 1e9).toFixed(1)} GB) superaría el límite de memoria del navegador. Elige TS o exporta menos vídeo.`);
-        st.textContent = 'Uniendo en MP4…';
+        joining = true; setPhase('Uniendo los vídeos en un solo MP4…');
         await ffmpeg.createDir('/parts'); await ffmpeg.mount('WORKERFS', { files: partFiles }, '/parts');
         try {
           await ffmpeg.writeFile('list.txt', partFiles.map(f => `file '/parts/${f.name}'`).join('\n') + '\n');
           const code = await ffmpeg.exec(['-f', 'concat', '-safe', '0', '-i', 'list.txt', '-c', 'copy', 'final.mp4']);
           if (code !== 0) throw new Error('FFmpeg no pudo unir los vídeos en MP4 (¿códecs distintos?). Prueba «recodificar» o el formato TS.');
         } finally { await ffmpeg.unmount('/parts'); await ffmpeg.deleteDir('/parts'); }
+        setPhase('Preparando el archivo final…');
         const data = await ffmpeg.readFile('final.mp4'); size = data.length;
         await ffmpeg.deleteFile('final.mp4'); await ffmpeg.deleteFile('list.txt'); step++;
         if (writable) await writable.write(data); else blobParts.push(data);
       }
-      const secs = durTxt((performance.now() - t0) / 1000), mb = (size / 1048576).toFixed(0);
-      if (writable) { await writable.close(); st.textContent = `✅ Guardado en disco en ${secs} (${mb} MB)`; }
+      const total = (performance.now() - t0) / 1000, mb = (size / 1048576).toFixed(0);
+      if (writable) { await writable.close(); st.textContent = `✅ Guardado en disco en ${clk(total)} (${mb} MB)`; }
       else {
         const a = $('dl'); a.href = URL.createObjectURL(new Blob(blobParts, { type: asMp4 ? 'video/mp4' : 'video/mp2t' }));
-        a.download = 'final.' + ext; a.hidden = false; st.textContent = `✅ Listo en ${secs} (${mb} MB)`;
+        a.download = 'final.' + ext; a.hidden = false;
+        if (auto) a.click();                    // descarga automática a la carpeta de descargas del navegador
+        st.textContent = auto ? `✅ Listo en ${clk(total)}: «final.${ext}» (${mb} MB) se está descargando a tu carpeta de descargas.` : `✅ Listo en ${clk(total)} (${mb} MB)`;
       }
+      joining = true; $('elabel').textContent = 'Tiempo total'; $('eclock').textContent = clk(total);
+      $('ephase').textContent = '✅ Exportación completada'; $('eprog').textContent = `${clk(totalSec)} de vídeo · ${mb} MB`; $('eend').textContent = '';
     } catch (err) {
       try { await writable?.abort(); } catch {}
+      eb.hidden = true;
       st.textContent = cancelled ? 'Exportación cancelada.' : '❌ Error: ' + emsg(err) + (asMp4 && !enc ? ' (si es por memoria, prueba el formato TS)' : '') + ' (ver registro)';
     }
   });
-  try { ffmpeg.off('progress', onP); } catch {} try { await wl?.release(); } catch {}
-  st.dataset.eta = ''; cancel.hidden = true; prog.hidden = true; btn.disabled = false;
+  clearInterval(timer); try { ffmpeg.off('progress', onP); } catch {} try { await wl?.release(); } catch {}
+  cancel.hidden = true; prog.hidden = true; btn.disabled = false;
 }
 
 $('files').onchange = e => { handleFiles([...e.target.files]); e.target.value = ''; };
