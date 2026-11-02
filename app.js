@@ -5,7 +5,7 @@ const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;'
 const say = m => { $('cstat').textContent = m; };
 window.addEventListener('error', e => say('❌ Error: ' + emsg(e)));
 window.addEventListener('unhandledrejection', e => say('❌ Error: ' + emsg(e.reason)));
-$('log').textContent = 'app.js v17 cargado\n';
+$('log').textContent = 'app.js v18 cargado\n';
 
 const toBlobURL = async (url, type) => {
   const r = await fetch(url); if (!r.ok) throw new Error('no se pudo descargar ' + url);
@@ -16,18 +16,29 @@ try { ffmpeg = new FFmpegWASM.FFmpeg(); }
 catch (e) { say('❌ Faltan archivos de la carpeta vendor (ffmpeg.js). Revisa que se subió a GitHub.'); }
 let clips = [], queue = [], mp4s = [], ready = null, logBuf = [], working = false, lock = Promise.resolve();
 const run = fn => { const p = lock.then(fn); lock = p.catch(() => {}); return p; }; // una operación de FFmpeg a la vez
-ffmpeg?.on('log', ({ message }) => { logBuf.push(message); $('log').textContent += message + '\n'; });
+let logLines = [], logTimer = null, quiet = false, coreURLs = null, partSeq = 0; const partCache = new Map();
+ffmpeg?.on('log', ({ message }) => {
+  logBuf.push(message); if (logBuf.length > 5000) logBuf.splice(0, 2500);
+  logLines.push(message); if (logLines.length > 300) logLines.shift();
+  if (!logTimer) logTimer = setTimeout(() => { logTimer = null; $('log').textContent = logLines.join('\n'); }, 1000);
+});
 
 function loadFFmpeg() {
   return ready ??= (async () => {
     if (!ffmpeg) throw new Error('faltan los archivos de vendor/');
-    say('Cargando FFmpeg (~30 MB, solo la primera vez)…');
-    await ffmpeg.load({
+    if (!quiet) say('Cargando FFmpeg (~30 MB, solo la primera vez)…');
+    coreURLs ??= {
       coreURL: await toBlobURL(`${CORE}/ffmpeg-core.js`, 'text/javascript'),
       wasmURL: await toBlobURL(`${CORE}/ffmpeg-core.wasm`, 'application/wasm'),
-    });
-    say('');
+    };
+    await ffmpeg.load(coreURLs);
+    if (!quiet) say('');
   })();
+}
+// FFmpeg en el navegador acumula memoria con cada vídeo procesado y acaba fallando: se reinicia limpio.
+async function freshFFmpeg() {
+  quiet = true;
+  try { try { ffmpeg.terminate(); } catch {} ready = null; await loadFFmpeg(); } finally { quiet = false; }
 }
 
 // Monta el File con WORKERFS: FFmpeg lo lee bajo demanda, sin copiarlo a la RAM.
@@ -299,8 +310,12 @@ async function exportVideo() {
     try {
       for (let i = 0; i < n; i++, step++) {
         const c = clips[i], out = `p${i}.${ext}`; curLen = lens[i];
-        setPhase(`${enc ? 'Recodificando' : 'Recortando'} vídeo ${i + 1} de ${n}: ${c.file.name}`);
-        const code = await withMounted(c.file, i, p => ffmpeg.exec(['-ss', String(c.start), '-i', p, '-t', String(lens[i]),
+        const key = asMp4 ? `${mode}|${c.file.name}|${c.file.size}|${c.start}|${c.end}|${enc ? `${tgt.W}x${tgt.H}@${tgt.FPS}` : ''}` : null;
+        if (key && partCache.has(key)) {          // ya procesado en un intento anterior: se reutiliza
+          setPhase(`Vídeo ${i + 1} de ${n} ya procesado antes: se reutiliza`);
+          partFiles.push(partCache.get(key)); doneSec += lens[i]; procSec = doneSec; updEta(); tick(); continue;
+        }
+        const cutArgs = p => ['-ss', String(c.start), '-i', p, '-t', String(lens[i]),
           ...(enc ? ['-map', '0:v:0', '-map', '0:a:0?',
               '-vf', `scale=${tgt.W}:${tgt.H}:force_original_aspect_ratio=decrease,pad=${tgt.W}:${tgt.H}:(ow-iw)/2:(oh-ih)/2,fps=${tgt.FPS},format=yuv420p`,
               '-c:v', 'libx264', '-preset', 'superfast', '-crf', '23', '-maxrate', `${vk}k`, '-bufsize', `${vk * 2}k`,
@@ -308,11 +323,26 @@ async function exportVideo() {
               ...(hasAudio ? ['-c:a', 'aac', '-b:a', '128k', '-ar', '48000', '-ac', '2', '-af', 'aresample=async=1:first_pts=0'] : ['-an']), out]
             : ['-map', '0:v:0?', '-map', '0:a:0?', '-c', 'copy',
               ...(asMp4 ? ['-avoid_negative_ts', 'make_zero', out]
-                        : ['-muxdelay', '0', '-muxpreload', '0', '-output_ts_offset', String(offset), '-f', 'mpegts', out])])]));
-        if (code !== 0) throw new Error(`FFmpeg no pudo procesar "${c.file.name}" (ver registro).`);
+                        : ['-muxdelay', '0', '-muxpreload', '0', '-output_ts_offset', String(offset), '-f', 'mpegts', out])])];
+        let code = 1, lastErr = null;
+        for (let attempt = 0; attempt < 3 && !cancelled; attempt++) {
+          try {
+            if (attempt > 0 || (i > 0 && (enc || i % 6 === 0))) {
+              setPhase(attempt ? `Reintentando el vídeo ${i + 1} (intento ${attempt + 1} de 3)…` : 'Reiniciando FFmpeg para liberar memoria…');
+              await freshFFmpeg();
+            }
+            setPhase(`${enc ? 'Recodificando' : 'Recortando'} vídeo ${i + 1} de ${n}: ${c.file.name}`);
+            code = await withMounted(c.file, i, p => ffmpeg.exec(cutArgs(p)));
+            if (code === 0) break;
+            lastErr = new Error(`FFmpeg no pudo procesar "${c.file.name}" (ver registro).`);
+          } catch (e) { lastErr = e; code = 1; }
+        }
+        if (cancelled) throw new Error('cancelado');
+        if (code !== 0) throw lastErr;
         if (asMp4) {
           // La parte se saca de la memoria de FFmpeg; luego se monta como archivo para unirlas sin copiarlas.
-          partFiles.push(new File([await ffmpeg.readFile(out)], out, { type: 'video/mp4' }));
+          const pf = new File([await ffmpeg.readFile(out)], `part${++partSeq}.mp4`, { type: 'video/mp4' });
+          partFiles.push(pf); partCache.set(key, pf);
         } else {
           logBuf = []; await ffmpeg.exec(['-hide_banner', '-i', out]);
           const m = logBuf.join('\n').match(/Duration: (\d+):(\d+):([\d.]+)/);
@@ -326,7 +356,9 @@ async function exportVideo() {
       if (asMp4) {
         const sum = partFiles.reduce((a, f) => a + f.size, 0);
         if (sum > 1.9e9) throw new Error(`El resultado (${(sum / 1e9).toFixed(1)} GB) superaría el límite de memoria del navegador. Elige TS o exporta menos vídeo.`);
-        joining = true; setPhase('Uniendo los vídeos en un solo MP4…');
+        joining = true;
+        if (n > 1) { setPhase('Reiniciando FFmpeg para unir…'); await freshFFmpeg(); }
+        setPhase('Uniendo los vídeos en un solo MP4…');
         await ffmpeg.createDir('/parts'); await ffmpeg.mount('WORKERFS', { files: partFiles }, '/parts');
         try {
           await ffmpeg.writeFile('list.txt', partFiles.map(f => `file '/parts/${f.name}'`).join('\n') + '\n');
@@ -346,6 +378,7 @@ async function exportVideo() {
         if (auto) a.click();                    // descarga automática a la carpeta de descargas del navegador
         st.textContent = auto ? `✅ Listo en ${clk(total)}: «final.${ext}» (${mb} MB) se está descargando a tu carpeta de descargas.` : `✅ Listo en ${clk(total)} (${mb} MB)`;
       }
+      partCache.clear();                         // con éxito, se libera la memoria de las partes
       joining = true; $('elabel').textContent = 'Tiempo total'; $('eclock').textContent = clk(total);
       $('ephase').textContent = '✅ Exportación completada'; $('eprog').textContent = `${clk(totalSec)} de vídeo · ${mb} MB`; $('eend').textContent = '';
     } catch (err) {
