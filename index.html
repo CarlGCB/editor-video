@@ -52,11 +52,13 @@ select{padding:8px;border-radius:6px;border:1px solid var(--mut);background:tran
       <div class="row">Quitar los primeros
         <input type="number" id="tmin" min="0" value="2"> min
         <input type="number" id="tsec" min="0" max="59" value="0"> s
-        <select id="tscope"><option value="marked">En los marcados</option><option value="all">En todos los vídeos</option></select>
+        <select id="tscope"><option value="marked">En los marcados</option>
+          <option value="unmarked">En los NO marcados</option><option value="all">En todos los vídeos</option></select>
         <button id="tapply">Borrar Principio</button>
         <button class="ghost" id="tall">Marcar todos</button>
-        <button class="ghost" id="tnone">Desmarcar todos</button></div>
-      <div class="meta" id="tmsg">Elige dónde aplicarlo: en los vídeos marcados, en todos, o solo en uno con el botón «Borrar principio» de su tarjeta.</div>
+        <button class="ghost" id="tnone">Desmarcar todos</button>
+        <button class="ghost" id="tinv">Invertir marcas</button></div>
+      <div class="meta" id="tmsg">Para tiempos distintos: marca un grupo de vídeos (Mayús + clic en una casilla marca un rango), aplica los segundos que quieras «En los marcados» y luego aplica otros «En los NO marcados». También puedes tocar un solo vídeo con su botón «Borrar principio».</div>
     </div>
     <div class="meta" style="margin:10px 0 4px">Arrastra las diapositivas para ordenarlas: ese es el orden del vídeo final. Haz clic en una para previsualizarla y ajustar su recorte.</div>
     <div id="strip" class="strip"></div>
@@ -79,8 +81,16 @@ select{padding:8px;border-radius:6px;border:1px solid var(--mut);background:tran
       <button id="export" disabled>Exportar vídeo final</button>
       <select id="fmt" title="Formato de salida"><option value="enc">MP4 · recodificar (lento, el más fiable)</option><option value="mp4">MP4 · copiar (rápido)</option><option value="ts">TS · copiar (vídeos muy largos)</option></select>
       <button class="ghost" id="cancel" hidden>Cancelar</button>
+      <label class="meta" title="Se guarda en la carpeta de descargas del navegador, sin preguntar. El archivo se arma en memoria: para vídeos enormes en TS, desmárcala."><input type="checkbox" id="auto"> Descargar automáticamente al terminar</label>
       <progress id="prog" value="0" max="1" hidden></progress>
       <span id="status"></span>
+    </div>
+    <div id="etabox" class="box" hidden style="margin-top:12px">
+      <div id="ephase" style="font-weight:600;word-break:break-all"></div>
+      <div class="meta" id="elabel" style="margin-top:6px">Tiempo restante</div>
+      <div id="eclock" style="font-size:2rem;font-weight:700;font-variant-numeric:tabular-nums">--:--:--</div>
+      <div class="meta" id="eprog"></div>
+      <div class="meta" id="eend"></div>
     </div>
     <a id="dl" class="dl" hidden>⬇️ Descargar</a>
   </section>
